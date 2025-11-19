@@ -1,0 +1,269 @@
+class StripePayGenerator < Rails::Generators::Base
+  source_root File.expand_path('templates', __dir__)
+
+  desc "Generate Stripe payment integration with Order model - creates order first, then processes payment"
+
+  class_option :for_test, type: :boolean, default: false,
+               desc: "Generate order new/create functionality for testing (includes new order form and controller actions)"
+
+  class_option :auth, type: :boolean, default: false,
+               desc: "Add user association to orders (requires User model)"
+
+  def check_user_model
+    return unless options[:auth]
+
+    unless File.exist?("app/models/user.rb")
+      say "Error: User model not found.", :red
+      say "Please ensure app/models/user.rb exists before using --auth option.", :yellow
+      say "You can generate it with: rails generate authentication", :blue
+      exit(1)
+    end
+  end
+
+  def generate_migration
+    if options[:auth]
+      # With auth: only need user reference, get customer info from user
+      fields = "user:references product_name:string amount:decimal currency:string status:string stripe_payment_intent_id:string"
+    else
+      # Without auth: need customer fields
+      fields = "customer_name:string customer_email:string product_name:string amount:decimal currency:string status:string stripe_payment_intent_id:string"
+    end
+
+    generate "migration", "CreateOrders #{fields}"
+
+    # Add custom migration content for defaults
+    migration_file = Dir.glob("db/migrate/*_create_orders.rb").last
+    if migration_file
+      content = File.read(migration_file)
+      updated_content = content.gsub(
+        /t\.string :currency/,
+        't.string :currency, default: "usd"'
+      ).gsub(
+        /t\.string :status/,
+        't.string :status, default: "pending"'
+      )
+      File.write(migration_file, updated_content)
+    end
+  end
+
+  def generate_model
+    @auth = options[:auth]
+    template "order.rb.erb", "app/models/order.rb"
+  end
+
+  def add_user_association
+    return unless options[:auth]
+
+    user_model_path = "app/models/user.rb"
+    return unless File.exist?(user_model_path)
+
+    user_content = File.read(user_model_path)
+
+    # Check if has_many :orders already exists
+    if user_content.include?("has_many :orders")
+      say "User model already has has_many :orders, skipping...", :yellow
+      return
+    end
+
+    # Insert has_many :orders after has_many :sessions
+    if user_content.match(/has_many :sessions.*\n/)
+      updated_content = user_content.sub(
+        /(has_many :sessions.*\n)/,
+        "\\1  has_many :orders, dependent: :destroy\n"
+      )
+      File.write(user_model_path, updated_content)
+      say "Added has_many :orders to User model (after has_many :sessions)", :green
+    else
+      say "Warning: Could not find 'has_many :sessions' in User model", :yellow
+      say "Please manually add 'has_many :orders' to your User model", :yellow
+    end
+  end
+
+  def generate_controller
+    @auth = options[:auth]
+    @for_test = options[:for_test]
+    template "orders_controller.rb.erb", "app/controllers/orders_controller.rb"
+  end
+
+  def generate_service
+    template "stripe_payment_service.rb.erb", "app/services/stripe_payment_service.rb"
+  end
+
+  def generate_views
+    @auth = options[:auth]
+    @for_test = options[:for_test]
+    template "views/index.html.erb", "app/views/orders/index.html.erb"
+    if options[:for_test]
+      template "views/new.html.erb", "app/views/orders/new.html.erb"
+    end
+    template "views/show.html.erb", "app/views/orders/show.html.erb"
+    template "views/success.html.erb", "app/views/orders/success.html.erb"
+    template "views/_pay_button.html.erb", "app/views/orders/_pay_button.html.erb"
+    template "views/pay.turbo_stream.erb", "app/views/orders/pay.turbo_stream.erb"
+  end
+
+  def generate_initializer
+    template "stripe.rb.erb", "config/initializers/stripe.rb"
+  end
+
+  def add_routes
+    if options[:for_test]
+      order_routes = "[:index, :new, :create, :show, :destroy]"
+    else
+      order_routes = "[:index, :show, :destroy]"
+    end
+
+    route_content = <<~ROUTES
+      resources :orders, only: #{order_routes} do
+        member do
+          get :pay
+          post :pay
+          get :success
+          get :failure
+        end
+      end
+      post '/webhooks/stripe', to: 'orders#webhook'
+    ROUTES
+
+    route route_content
+  end
+
+  def add_admin_routes
+    route "resources :orders", namespace: :admin
+  end
+
+  def generate_admin_controller
+    @auth = options[:auth]
+    template "admin_orders_controller.rb.erb", "app/controllers/admin/orders_controller.rb"
+  end
+
+  def generate_admin_views
+    @auth = options[:auth]
+    template "admin_views/index.html.erb", "app/views/admin/orders/index.html.erb"
+    template "admin_views/show.html.erb", "app/views/admin/orders/show.html.erb"
+  end
+
+  def generate_tests
+    @auth = options[:auth]
+    @for_test = options[:for_test]
+    template "orders_spec.rb.erb", "spec/requests/orders_spec.rb"
+    template "factory.rb.erb", "spec/factories/orders.rb"
+  end
+
+  def update_sidebar
+    sidebar_path = "app/views/shared/admin/_sidebar.html.erb"
+    if File.exist?(sidebar_path)
+      sidebar_content = File.read(sidebar_path)
+
+      # Check if menu item already exists
+      generated_comment = "<!-- Generated by stripe_pay: orders -->"
+      if sidebar_content.include?(generated_comment)
+        say "Sidebar already contains orders menu item, skipping...", :yellow
+        return
+      end
+
+      # Add menu item to the end of the file
+      menu_item = <<~MENU_ITEM
+
+        #{generated_comment}
+        <li>
+          <%= link_to admin_orders_path,
+              class: "flex items-center px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-blue-100 hover:text-blue-700 dark:hover:bg-blue-900 dark:hover:text-blue-300 rounded-lg transition-colors \#{'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300' if current_path.include?('/admin/orders')}" do %>
+            <svg class="w-5 h-5 mr-3" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd"/>
+            </svg>
+            Orders
+          <% end %>
+        </li>
+      MENU_ITEM
+
+      updated_content = sidebar_content + menu_item
+      File.write(sidebar_path, updated_content)
+      say "Updated admin sidebar with Orders menu item", :green
+    else
+      say "Warning: Admin sidebar file not found. Please manually add menu item for Orders", :yellow
+    end
+  end
+
+  def add_to_application_yml
+    stripe_config = <<~STRIPE
+
+      # Stripe Configuration
+      STRIPE_PUBLISHABLE_KEY: <%= ENV["CLACKY_STRIPE_PUBLISHABLE_KEY"] %>
+      STRIPE_SECRET_KEY: <%= ENV["CLACKY_STRIPE_SECRET_KEY"] %>
+      STRIPE_WEBHOOK_SECRET: <%= ENV["CLACKY_STRIPE_WEBHOOK_SECRET"] %>
+    STRIPE
+
+    # Update application.yml.example
+    add_stripe_config_to_file("config/application.yml.example", stripe_config)
+
+    # Update application.yml if it exists
+    add_stripe_config_to_file("config/application.yml", stripe_config)
+  end
+
+  def add_stripe_gem
+    gemfile_path = "Gemfile"
+    return unless File.exist?(gemfile_path)
+
+    gemfile_content = File.read(gemfile_path)
+    stripe_comment = "# Generated by stripe_pay: stripe gem"
+
+    # Check if stripe gem already added by this generator
+    if gemfile_content.include?(stripe_comment)
+      say "Stripe gem already added by generator, skipping...", :yellow
+      return
+    end
+
+    # Check if stripe gem already exists (manually added)
+    if gemfile_content.match(/gem\s+['"]stripe['"]/)
+      say "Stripe gem already exists in Gemfile, skipping...", :yellow
+      return
+    end
+
+    # Add stripe gem before the first group or at the end of main gems
+    stripe_gem_line = "\n#{stripe_comment}\ngem \"stripe\", \"~> 12.0\""
+
+    if gemfile_content.include?("group :")
+      # Insert before first group
+      updated_content = gemfile_content.sub(/\ngroup\s+:/, "#{stripe_gem_line}\n\ngroup :")
+    else
+      # Append to end of file
+      updated_content = gemfile_content + stripe_gem_line
+    end
+
+    File.write(gemfile_path, updated_content)
+    say "Added Stripe gem to Gemfile", :green
+    say "Please run 'bundle install' to install the gem", :yellow
+  end
+
+  private
+
+  def add_stripe_config_to_file(file_path, stripe_config)
+    if File.exist?(file_path)
+      content = File.read(file_path)
+
+      unless content.include?("STRIPE_PUBLISHABLE_KEY")
+        File.write(file_path, content + stripe_config)
+        say "Added Stripe configuration to #{File.basename(file_path)}", :green
+      else
+        say "Stripe configuration already exists in #{File.basename(file_path)}", :yellow
+      end
+    else
+      say "#{File.basename(file_path)} not found, skipping...", :yellow
+    end
+  end
+
+  def display_next_steps
+    say "\n" + "="*60, :green
+    say "Stripe Payment Generator completed!", :green
+    say "="*60, :green
+    say "\nNext steps:", :yellow
+    say "1. Setup: bundle install && rails db:migrate && touch tmp/restart.txt", :cyan
+    say "\n2. Configure Stripe keys in config/application.yml", :cyan
+    say "\n3. Resolve CLACKY_TODOs (tests will fail until resolved):", :cyan
+    say "   - Implement order creation in your business workflow"
+    say "   - Implement process_order_paid() in app/services/stripe_payment_service.rb"
+    say "   - Remove CLACKY_TODO comments after implementing"
+    say "\n" + "="*60, :green
+  end
+end

@@ -1,0 +1,28 @@
+development:
+  adapter:  postgresql
+  host:     localhost
+  encoding: unicode
+  database: myapp_development
+  pool:     5
+  username: postgres
+  password: postgres
+  template: template0
+
+test:
+  adapter:  postgresql
+  host:     localhost
+  encoding: unicode
+  database: myapp_test
+  pool:     5
+  username: postgres
+  password: postgres
+  template: template0
+
+production:
+  primary: &primary_production
+    adapter:  postgresql
+    url:      <%= ENV.fetch('DATABASE_URL', '') %>
+
+  cable:
+    <<: *primary_production
+    migrations_paths: db/cable_migrate
