@@ -63,3 +63,5 @@ module Myapp
     config.good_job.cron = cron_config if cron_config.present?
   end
 end
+config.autoload_paths += %W(#{config.root}/app/services)
+config.autoload_paths += %W(#{config.root}/app/jobs)

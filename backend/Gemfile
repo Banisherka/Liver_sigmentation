@@ -43,3 +43,12 @@ group :test do
   gem "capybara"
   gem "selenium-webdriver"
 end
+# Для фоновых задач
+gem 'sidekiq'
+gem 'redis'
+
+# Для сериализации
+gem 'fast_jsonapi'
+
+# Для работы с Python (опционально)
+# gem 'pycall'  # Для вызова Python из Ruby

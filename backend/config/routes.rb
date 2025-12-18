@@ -35,3 +35,13 @@ Rails.application.routes.draw do
       !request.path.start_with?('/rails/active_storage')
     }
 end
+Rails.application.routes.draw do
+  namespace :api do
+    namespace :v1 do
+      resources :ct_scans do
+        resources :three_d_models, only: [:index, :create, :show]
+        post 'generate_3d', on: :member
+      end
+    end
+  end
+end
