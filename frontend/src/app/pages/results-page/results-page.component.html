@@ -1,0 +1,64 @@
+<div class="results-page">
+  <header class="page-header">
+    <button class="back-button" (click)="goBack()">← Назад</button>
+    <h1>Результаты сегментации</h1>
+    @if (segmentationTask()) {
+      <div class="task-info">
+        <span class="task-id">Задача #{{ segmentationTask()!.id }}</span>
+        <span class="task-status" [ngClass]="'status-' + segmentationTask()!.status">
+          {{ segmentationTask()!.status }}
+        </span>
+      </div>
+    }
+  </header>
+
+  <!-- Состояние загрузки -->
+  @if (loading()) {
+    <div class="loading-state">
+      <p>Загрузка результатов сегментации...</p>
+    </div>
+  }
+
+  <!-- Состояние ошибки -->
+  @if (error() && !loading()) {
+    <div class="error-state">
+      <p>{{ error() }}</p>
+      <button class="retry-button" (click)="loadSegmentationData()">Повторить</button>
+    </div>
+  }
+
+  <!-- Основной контент -->
+  @if (segmentationResult() && !loading()) {
+    <div class="results-content">
+      <div class="results-grid">
+        <!-- Левая колонка: 3D визуализация -->
+        <div class="visualization-section">
+          <h2>3D визуализация</h2>
+          <div class="viewer-wrapper">
+            <app-segmentation-3d-viewer
+              [maskData]="undefined"
+              [contours]="segmentationResult()!.contours"
+              [wireframeMode]="wireframeMode()"
+              [autoRotate]="autoRotate()"
+              [opacity]="opacity()"
+            />
+          </div>
+          <app-segmentation-controls
+            (resetView)="onResetView()"
+            (wireframeToggle)="onWireframeToggle($event)"
+            (rotationToggle)="onRotationToggle($event)"
+            (opacityChange)="onOpacityChange($event)"
+            (downloadMask)="onDownloadMask()"
+          />
+        </div>
+
+        <!-- Правая колонка: Метрики -->
+        <div class="metrics-section">
+          <h2>Метрики качества</h2>
+          <app-segmentation-metrics [metrics]="segmentationResult()" />
+        </div>
+      </div>
+    </div>
+  }
+</div>
+

@@ -29,6 +29,7 @@
       multiple
       hidden
       #fileInput
+      [accept]="acceptedFileTypes"
       (change)="onFileInputChange($event)"
     />
     <ui-button variant="ghost" (click)="fileInput.click()">+ Загрузить файл</ui-button>
