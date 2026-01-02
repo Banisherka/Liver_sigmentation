@@ -1,29 +1,24 @@
-FROM ghcr.io/clacky-ai/rails-base-template:latest
+FROM python:3.11-slim
 
 WORKDIR /app
 
-# Set production environment
-ENV RAILS_ENV="production" \
-    NODE_ENV="production" \
-    PORT="3000"
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
 
-# Check and install only missing gems (if Gemfile changed)
-# bundle check returns 0 if all gems are satisfied, otherwise install
-COPY --chown=ruby:ruby Gemfile Gemfile.lock ./
-RUN bundle check || bundle install --jobs=4 --retry=3
+# Copy requirements
+COPY requirements.txt .
 
-# Check and install only missing npm packages (if package.json changed)
-COPY --chown=ruby:ruby package.json package-lock.json ./
-RUN npm ci --production=false
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY --chown=ruby:ruby . .
+COPY . .
 
-# Precompile assets
-RUN SECRET_KEY_BASE_DUMMY=1 bundle exec rails assets:precompile
+# Expose port
+EXPOSE 8000
 
-ENTRYPOINT ["/app/bin/docker-entrypoint"]
+# Run application
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
-# Start the server by default, this can be overwritten at runtime
-EXPOSE ${PORT}
-CMD ["./bin/rails", "server"]
