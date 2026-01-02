@@ -79,7 +79,7 @@ def main():
         stl_mesh = generate_stl(volume)
         
         # 4. Сохраняем STL файл
-        output_dir = os.path.join(os.path.dirname(dicom_dir), '..', '..', 'public', '3d_models')
+        output_dir = os.path.join(os.path.dirname(dicom_dir), '..', 'storage', '3d_models')
         os.makedirs(output_dir, exist_ok=True)
         
         output_path = os.path.join(output_dir, 'generated_model.stl')
@@ -105,3 +105,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
